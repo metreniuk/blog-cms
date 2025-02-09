@@ -1,52 +1,58 @@
-const express = require('express');
-const cors = require('cors');
-const { config, supabase, mongodb } = require('./config');
-const postsRouter = require('./routes/posts');
-const usersRouter = require('./routes/users');
+import express from "express";
+import cors from "cors";
+import { config, supabase, mongodb } from "./config/index.js";
+import postsRouter from "./routes/posts.js";
+import usersRouter from "./routes/users.js";
 
 const app = express();
 
-// Middleware
+// Basic middleware
 app.use(cors());
 app.use(express.json());
 
+// Simple request logger
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url}`);
+  next();
+});
+
 // Health check endpoint
-app.get('/health', async (req, res) => {
+app.get("/health", async (req, res) => {
   try {
     // Check Supabase connection
-    const { data, error } = await supabase.from('users').select('id').limit(1);
-    if (error) throw new Error('Supabase connection failed');
+    const { error: supabaseError } = await supabase
+      .from("users")
+      .select("id")
+      .limit(1);
+    if (supabaseError) throw new Error("Supabase connection failed");
 
     // Check MongoDB connection
     await mongodb.command({ ping: 1 });
 
     res.json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
+      status: "healthy",
       services: {
-        supabase: 'connected',
-        mongodb: 'connected'
-      }
+        supabase: "connected",
+        mongodb: "connected",
+      },
     });
   } catch (error) {
     res.status(503).json({
-      status: 'unhealthy',
-      timestamp: new Date().toISOString(),
-      error: error.message
+      status: "unhealthy",
+      error: error.message,
     });
   }
 });
 
 // Routes
-app.use('/api/posts', postsRouter);
-app.use('/api/users', usersRouter);
+app.use("/api/posts", postsRouter);
+app.use("/api/users", usersRouter);
 
-// Error handling
+// Simple error handler
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(err.status || 500).json({
-    status: 'error',
-    message: err.message || 'Internal server error'
+  res.status(err.statusCode || 500).json({
+    error: err.message || "Something went wrong",
   });
 });
 
