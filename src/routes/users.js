@@ -1,7 +1,19 @@
 import { Router } from "express";
-import { supabase } from "../config/index.js";
+import { supabase, mongodb } from "../config/index.js";
 
 const router = Router();
+
+// Get all users
+router.get("/", async (req, res, next) => {
+  try {
+    const { data: users, error } = await supabase.from("users").select("*");
+
+    if (error) throw new Error(error.message);
+    res.json(users);
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Get user
 router.get("/:id", async (req, res, next) => {
@@ -26,11 +38,27 @@ router.get("/:id/posts", async (req, res, next) => {
     const { id } = req.params;
     const { data: posts, error } = await supabase
       .from("posts")
-      .select("*")
+      .select(
+        `
+        *,
+        author:users(id, username)
+      `
+      )
       .eq("author_id", id);
 
     if (error) throw new Error(error.message);
-    res.json(posts);
+
+    // Get content from MongoDB for each post
+    const postsWithContent = await Promise.all(
+      posts.map(async (post) => {
+        const content = await mongodb
+          .collection("posts")
+          .findOne({ _id: post.id });
+        return { ...post, content: content?.content };
+      })
+    );
+
+    res.json(postsWithContent);
   } catch (error) {
     next(error);
   }
