@@ -4,7 +4,7 @@ import slugify from "slugify";
 
 const router = Router();
 
-// Get all posts
+// Get all posts (with caching)
 router.get("/", async (req, res, next) => {
   const key = `cache:${req.originalUrl}`;
   console.log(`Checking cache: ${key}`);
@@ -20,10 +20,11 @@ router.get("/", async (req, res, next) => {
 
     // Get posts from Supabase
     const { data: posts, error } = await supabase.from("posts").select(`
-      *,
-      author:users(username),
-      tags:post_tags(tag:tags(name))
-    `);
+        *,
+        author:users(id, username),
+        tags:post_tags(tag:tags(id, name))
+      `);
+
     if (error) throw new Error(error.message);
 
     // Get content from MongoDB
@@ -48,27 +49,15 @@ router.get("/", async (req, res, next) => {
 
 // Get single post
 router.get("/:id", async (req, res, next) => {
-  const key = `cache:${req.originalUrl}`;
-  console.log(`Checking cache: ${key}`);
-
   try {
-    // Try to get from cache
-    const cachedData = await redis.get(key);
-    if (cachedData) {
-      console.log(`Cache hit: ${key}`);
-      return res.json(JSON.parse(cachedData));
-    }
-    console.log(`Cache miss: ${key}`);
-
-    // Get post from Supabase
     const { id } = req.params;
     const { data: post, error } = await supabase
       .from("posts")
       .select(
         `
         *,
-        author:users(username),
-        tags:post_tags(tag:tags(name))
+        author:users(id, username),
+        tags:post_tags(tag:tags(id, name))
       `
       )
       .eq("id", id)
@@ -76,12 +65,9 @@ router.get("/:id", async (req, res, next) => {
 
     if (error) throw new Error("Post not found");
 
-    // Get content from MongoDB
     const content = await mongodb.collection("posts").findOne({ _id: id });
     const fullPost = { ...post, content: content?.content };
 
-    // Cache and send response
-    await redis.set(key, JSON.stringify(fullPost), { ex: config.cacheExpiry });
     res.json(fullPost);
   } catch (error) {
     next(error);
@@ -92,17 +78,13 @@ router.get("/:id", async (req, res, next) => {
 router.post("/", async (req, res, next) => {
   try {
     const { title, content, tags } = req.body;
-    const userId = req.user.id; // From auth middleware
+    const userId = req.user.id;
     const slug = slugify(title, { lower: true });
 
     // Create post in Supabase
     const { data: post, error } = await supabase
       .from("posts")
-      .insert({
-        title,
-        author_id: userId,
-        slug,
-      })
+      .insert({ title, author_id: userId, slug })
       .select()
       .single();
 
@@ -126,11 +108,6 @@ router.post("/", async (req, res, next) => {
       );
     }
 
-    // Clear cache for posts list
-    const cachePattern = "cache:/api/posts*";
-    const keys = await redis.keys(cachePattern);
-    if (keys.length > 0) await redis.del(...keys);
-
     res.status(201).json(post);
   } catch (error) {
     next(error);
@@ -142,7 +119,7 @@ router.put("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
     const { title, content, status, tags } = req.body;
-    const userId = req.user.id; // From auth middleware
+    const userId = req.user.id;
 
     // Update post in Supabase
     const updateData = {};
@@ -191,11 +168,6 @@ router.put("/:id", async (req, res, next) => {
       }
     }
 
-    // Clear cache
-    const cachePattern = "cache:/api/posts*";
-    const keys = await redis.keys(cachePattern);
-    if (keys.length > 0) await redis.del(...keys);
-
     res.json(post);
   } catch (error) {
     next(error);
@@ -206,7 +178,7 @@ router.put("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id; // From auth middleware
+    const userId = req.user.id;
 
     const { error } = await supabase
       .from("posts")
@@ -217,12 +189,6 @@ router.delete("/:id", async (req, res, next) => {
     if (error) throw new Error("Post not found");
 
     await mongodb.collection("posts").deleteOne({ _id: id });
-
-    // Clear cache
-    const cachePattern = "cache:/api/posts*";
-    const keys = await redis.keys(cachePattern);
-    if (keys.length > 0) await redis.del(...keys);
-
     res.status(204).send();
   } catch (error) {
     next(error);

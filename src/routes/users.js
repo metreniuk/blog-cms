@@ -1,35 +1,17 @@
 import { Router } from "express";
-import { redis, config, supabase } from "../config/index.js";
+import { supabase } from "../config/index.js";
 
 const router = Router();
 
 // Get user
 router.get("/:id", async (req, res, next) => {
-  const key = `cache:${req.originalUrl}`;
-  console.log(`Checking cache: ${key}`);
-
   try {
-    // Try to get from cache
-    const cachedData = await redis.get(key);
-    if (cachedData) {
-      console.log(`Cache hit: ${key}`);
-      return res.json(JSON.parse(cachedData));
-    }
-    console.log(`Cache miss: ${key}`);
-
-    // Get user from Supabase
     const { id } = req.params;
-    const { data: user, error } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", id)
-      .single();
-
+    const { data: users, error } = await supabase.rpc("get_user_by_id", {
+      user_id: id,
+    });
     if (error) throw new Error("User not found");
-
-    // Cache and send response
-    await redis.set(key, JSON.stringify(user), { ex: config.cacheExpiry });
-    res.json(user);
+    res.json(users[0]);
   } catch (error) {
     next(error);
   }
@@ -37,34 +19,12 @@ router.get("/:id", async (req, res, next) => {
 
 // Get user posts
 router.get("/:id/posts", async (req, res, next) => {
-  const key = `cache:${req.originalUrl}`;
-  console.log(`Checking cache: ${key}`);
-
   try {
-    // Try to get from cache
-    const cachedData = await redis.get(key);
-    if (cachedData) {
-      console.log(`Cache hit: ${key}`);
-      return res.json(JSON.parse(cachedData));
-    }
-    console.log(`Cache miss: ${key}`);
-
-    // Get posts from Supabase
     const { id } = req.params;
-    const { data: posts, error } = await supabase
-      .from("posts")
-      .select(
-        `
-        *,
-        tags:post_tags(tag:tags(name))
-      `
-      )
-      .eq("author_id", id);
-
+    const { data: posts, error } = await supabase.rpc("get_user_posts", {
+      user_id: id,
+    });
     if (error) throw new Error(error.message);
-
-    // Cache and send response
-    await redis.set(key, JSON.stringify(posts), { ex: config.cacheExpiry });
     res.json(posts);
   } catch (error) {
     next(error);
@@ -82,20 +42,13 @@ router.put("/:id", async (req, res, next) => {
       throw new Error("Forbidden");
     }
 
-    const { data: user, error } = await supabase
-      .from("users")
-      .update({ username, email, updated_at: new Date() })
-      .eq("id", id)
-      .select()
-      .single();
+    const { data: user, error } = await supabase.rpc("update_user", {
+      user_id: id,
+      new_username: username,
+      new_email: email,
+    });
 
     if (error) throw new Error("User not found");
-
-    // Clear user cache
-    const cachePattern = `cache:/api/users/${id}*`;
-    const keys = await redis.keys(cachePattern);
-    if (keys.length > 0) await redis.del(...keys);
-
     res.json(user);
   } catch (error) {
     next(error);
