@@ -21,8 +21,7 @@ router.get("/", async (req, res, next) => {
     // Get posts from Supabase
     const { data: posts, error } = await supabase.from("posts").select(`
         *,
-        author:users(id, username),
-        tags:post_tags(tag:tags(id, name))
+        author:users(id, username)
       `);
 
     if (error) throw new Error(error.message);
@@ -56,8 +55,7 @@ router.get("/:id", async (req, res, next) => {
       .select(
         `
         *,
-        author:users(id, username),
-        tags:post_tags(tag:tags(id, name))
+        author:users(id, username)
       `
       )
       .eq("id", id)
@@ -77,7 +75,7 @@ router.get("/:id", async (req, res, next) => {
 // Create post
 router.post("/", async (req, res, next) => {
   try {
-    const { title, content, tags } = req.body;
+    const { title, content } = req.body;
     const userId = req.user.id;
     const slug = slugify(title, { lower: true });
 
@@ -98,16 +96,6 @@ router.post("/", async (req, res, next) => {
       created_at: new Date(),
     });
 
-    // Add tags
-    if (tags?.length > 0) {
-      await supabase.from("post_tags").insert(
-        tags.map((tagId) => ({
-          post_id: post.id,
-          tag_id: tagId,
-        }))
-      );
-    }
-
     res.status(201).json(post);
   } catch (error) {
     next(error);
@@ -118,7 +106,7 @@ router.post("/", async (req, res, next) => {
 router.put("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { title, content, status, tags } = req.body;
+    const { title, content, status } = req.body;
     const userId = req.user.id;
 
     // Update post in Supabase
@@ -153,19 +141,6 @@ router.put("/:id", async (req, res, next) => {
           },
         }
       );
-    }
-
-    // Update tags
-    if (tags) {
-      await supabase.from("post_tags").delete().eq("post_id", id);
-      if (tags.length > 0) {
-        await supabase.from("post_tags").insert(
-          tags.map((tagId) => ({
-            post_id: id,
-            tag_id: tagId,
-          }))
-        );
-      }
     }
 
     res.json(post);

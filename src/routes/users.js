@@ -7,11 +7,14 @@ const router = Router();
 router.get("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { data: users, error } = await supabase.rpc("get_user_by_id", {
-      user_id: id,
-    });
+    const { data: user, error } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", id)
+      .single();
+
     if (error) throw new Error("User not found");
-    res.json(users[0]);
+    res.json(user);
   } catch (error) {
     next(error);
   }
@@ -21,9 +24,11 @@ router.get("/:id", async (req, res, next) => {
 router.get("/:id/posts", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { data: posts, error } = await supabase.rpc("get_user_posts", {
-      user_id: id,
-    });
+    const { data: posts, error } = await supabase
+      .from("posts")
+      .select("*")
+      .eq("author_id", id);
+
     if (error) throw new Error(error.message);
     res.json(posts);
   } catch (error) {
@@ -42,11 +47,12 @@ router.put("/:id", async (req, res, next) => {
       throw new Error("Forbidden");
     }
 
-    const { data: user, error } = await supabase.rpc("update_user", {
-      user_id: id,
-      new_username: username,
-      new_email: email,
-    });
+    const { data: user, error } = await supabase
+      .from("users")
+      .update({ username, email, updated_at: new Date() })
+      .eq("id", id)
+      .select()
+      .single();
 
     if (error) throw new Error("User not found");
     res.json(user);
