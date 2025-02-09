@@ -4,20 +4,9 @@ import slugify from "slugify";
 
 const router = Router();
 
-// Get all posts (with caching)
+// Get all posts
 router.get("/", async (req, res, next) => {
-  const key = `cache:${req.originalUrl}`;
-  console.log(`Checking cache: ${key}`);
-
   try {
-    // Try to get from cache
-    const cachedData = await redis.get(key);
-    if (cachedData) {
-      console.log(`Cache hit: ${key}`);
-      return res.json(JSON.parse(cachedData));
-    }
-    console.log(`Cache miss: ${key}`);
-
     // Get posts from Supabase
     const { data: posts, error } = await supabase.from("posts").select(`
         *,
@@ -36,20 +25,27 @@ router.get("/", async (req, res, next) => {
       })
     );
 
-    // Cache and send response
-    await redis.set(key, JSON.stringify(postsWithContent), {
-      ex: config.cacheExpiry,
-    });
     res.json(postsWithContent);
   } catch (error) {
     next(error);
   }
 });
 
-// Get single post
+// Get single post (with caching)
 router.get("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
+    const key = `cache:post:${id}`;
+
+    // Try to get from cache
+    const cachedData = await redis.get(key);
+    if (cachedData) {
+      console.log(`Cache hit: ${key}`);
+      return res.json(cachedData);
+    }
+    console.log(`Cache miss: ${key}`);
+
+    // Get post from Supabase
     const { data: post, error } = await supabase
       .from("posts")
       .select(
@@ -63,9 +59,13 @@ router.get("/:id", async (req, res, next) => {
 
     if (error) throw new Error("Post not found");
 
+    // Get content from MongoDB
     const content = await mongodb.collection("posts").findOne({ _id: id });
     const fullPost = { ...post, content: content?.content };
-
+    const obj = JSON.stringify(fullPost);
+    console.log(obj);
+    // Cache and send response
+    await redis.set(key, JSON.stringify(fullPost), { ex: config.cacheExpiry });
     res.json(fullPost);
   } catch (error) {
     next(error);
@@ -143,6 +143,8 @@ router.put("/:id", async (req, res, next) => {
       );
     }
 
+    // Invalidate cache
+    await redis.del(`cache:post:${id}`);
     res.json(post);
   } catch (error) {
     next(error);
@@ -164,6 +166,9 @@ router.delete("/:id", async (req, res, next) => {
     if (error) throw new Error("Post not found");
 
     await mongodb.collection("posts").deleteOne({ _id: id });
+
+    // Invalidate cache
+    await redis.del(`cache:post:${id}`);
     res.status(204).send();
   } catch (error) {
     next(error);
