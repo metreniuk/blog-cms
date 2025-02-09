@@ -1,7 +1,7 @@
 import { supabase, mongodb, mongoClient } from "../src/config/index.js";
 import slugify from "slugify";
 
-const seedUsers = [
+export const seedUsers = [
   {
     username: "john_doe",
     email: "john@example.com",
@@ -12,7 +12,7 @@ const seedUsers = [
   },
 ];
 
-const seedPosts = [
+export const seedPosts = [
   {
     title: "Getting Started with Node.js",
     content: `
